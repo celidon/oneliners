@@ -1,0 +1,135 @@
+#Compress an access log without losing apache's connectivity
+gzip -c /home/wlmanager/flex.log> /dev/shm/flex.log-`date +%Y%m%d`.gz && echo "181101-09933 -- /home/wlmanager/flex.log-`date +%Y%m%d`.gz" > /home/wlmanager/flex.log && mv /dev/shm/flex.log-`date +%Y%m%d`.gz /home/wlmanager/.
+
+#Check bond - 42 lines
+2.5) Verify network configuration, check all secondary IP's are in place.
+If you can SSH into the device you have confirmed network connectivity.
+If you can't login, troubleshoot using DRAC console.
+
+ip a
+
+cat /proc/net/bonding/bond0
+
+Expect to see something like (check bonding mode, MII status):
+
+Ethernet Channel Bonding Driver: v3.6.0 (September 26, 2009)
+
+Bonding Mode: fault-tolerance (active-backup)
+Primary Slave: None
+Currently Active Slave: eth0
+MII Status: up
+MII Polling Interval (ms): 100
+Up Delay (ms): 0
+Down Delay (ms): 0
+
+Slave Interface: eth0
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: bc:30:5b:f0:bb:10
+Slave queue ID: 0
+
+Slave Interface: eth1
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: bc:30:5b:f0:bb:11
+Slave queue ID: 0
+
+
+2.6) Check active-backup failover is working as expected, the gateway should be pingable when changing the active slave:
+
+ifenslave -c bond0 eth1 && ping -c5 `route -n | awk '/^0.0.0.0/{print $2}'`
+ifenslave -c bond0 eth0 && ping -c5 `route -n | awk '/^0.0.0.0/{print $2}'`
+
+#Testing SSL Ciphers Openssl
+tss(){ SITE=$1; for cipher in $(openssl ciphers | sed 's/:/ /g'); do CONNECT=$(echo "$(echo Q | openssl s_client -cipher $cipher -state -connect $SITE:443 2>&1)" | grep -c SSL-Session); if [ $CONNECT -eq 1 ]; then echo "Supports: $cipher"; else echo "............Not Supported: $cipher"; fi; done;}; tss IPADDRESS
+
+#Testing SSL Ciphers NMAP
+nmap -sV --script ssl-enum-ciphers -p 443 IPADDRESS
+
+#Disk Expansion - 10 lines
+df -h /FS; pvs; vgs; lvs; lsblk
+parted -s /dev/DEVICE mklabel gpt
+parted -s -a optimal -- /dev/DEVICE mkpart primary 0% 100%
+parted -s -- /dev/DEVICE align-check optimal 1
+parted -s -- /dev/DEVICE set 1 lvm on
+parted -s /dev/DEVICE unit s print
+pvs; pvcreate --metadatasize 250k /dev/DEVICE1; pvs
+vgs; vgextend VG /dev/DEVICE1; vgs
+lvs; lvextend -l +100%FREE /dev/mapper/VG-LV; lvs
+df -h /FS ; resize2fs /dev/mapper/VG-LV; df -h /FS
+
+#Disable user
+OLDCOMMENT=$(getent passwd USER | cut -d":" -f5); usermod --comment "$OLDCOMMENT, disabled TICKET" --lock --shell /dev/null USER; chage --expiredate 0 USER; grep USER /etc/passwd /etc/sudoers
+
+#Low Disk RHEL6+
+FS='/';resize;clear;date;df -h $FS; echo "Largest Directories:"; du -hcx --max-depth=2 $FS 2>/dev/null | sort -hrk 1 | head -15 ;echo "Largest Files:"; nice -n 19 find $FS -mount -type f -print0 2>/dev/null| xargs -0 du -k | sort -rnk1| head -20 |awk -F'\t' '{printf "%8d MB\t%s\n",($1/1024),$NF}'
+
+#apachebuddy
+curl -sL https://raw.githubusercontent.com/richardforth/apache2buddy/master/apache2buddy.pl | perl
+#apachebuddy without curl/perl
+echo "Average RAM used by HTTPD"; ps aux | grep 'httpd' | awk '{sum += $6/1024; n++} END {print sum/n " MB";}'
+
+#rs-sysmon
+for f in /var/log/rs-sysmon/ps.log.{90..100}; do echo "$(head -1 ${f}| cut -d_ -f2) $(grep mysql ${f})"; echo; done
+
+#slave status
+mysql -e 'show slave status\G' | egrep 'Running|Seconds|Error'
+
+#recap
+day=`date +%Y%m%d`; name=ps; echo "httpd process count for $(hostname)";echo '=================================';for hour in $(seq -f '%02g' 0 23); do for minute in $(seq -f '%02g' 00 10 50); do log=$(echo /var/log/recap/"$name"_"$day"-"$hour$minute"*);echo $log; grep java $log; done; done
+
+#last fsck
+tune2fs -l /dev/sda1 | grep "Last checked"
+
+#access log
+AC=/var/www/regalcrownclub.com/log/access.log; for i in "$(ls $AC)"; do for d in $(zless $i | awk '{print $4}' | cut -d':' -f1 | sed -e 's/\[//g' | sort | uniq); do echo $d; zgrep -h $d $i | awk '{print $1}' | sort | uniq -c | sort -rn 2>/dev/null; done;done
+
+#inodes
+ls / -AiR1U | sed -rn '/^[./]/{h;n;};G; s|^ *([0-9][0-9]*)[^0-9][^/]*([~./].*):|\1:\2|p' | sort -t : -uk1.1,1n | cut -d: -f2 | sort -r | uniq -c |sort -rn | head -n10
+
+#Low Disk RHEL5
+FS='/';resize;clear;date;df -h $FS; echo "Largest Directories:"; du -hcx --max-depth=2 $FS 2>/dev/null | grep [0-9]G | sort -grk 1 | head -15 ;echo "Largest Files:"; nice -n 19 find $FS -mount -type f -print0 2>/dev/null| xargs -0 du -k | sort -rnk1| head -n20 |awk -F'\t' '{printf "%8d MB\t%s\n",($1/1024),$NF}'
+
+#Check for high proc today
+sar -q | awk '$0 ~ /ldavg/ || $5 >= 28 || $6 >= 28 || $7 >= 28 {print $0}'
+
+#Clear semaphores
+for i in `ipcs -s | awk '/apache/ {print $2}'`; do (ipcrm -s $i); done
+
+#Dell Firmware Info
+omreport system version
+
+#Binary Log Analysis
+mysqlbinlog filename | grep -i -e "^update" -e "^insert" -e "^delete" -e "^replace" -e "^alter" | cut -c1-100 | tr '[A-Z]' '[a-z]' | sed -e "s/\t/ /g;s/\`//g;s/(.*$//;s/ set .*$//;s/ as .*$//" | sed -e "s/ where .*$//" | sort | uniq -c | sort -nr | head -50
+
+#Binary Log Analysis Per DB
+for files in `ls $(mysql -e "show variables like 'log_bin_basename'" | tail -1 | awk '{print $2}')* | egrep "[0-9]$"`; do echo -e "\n\nBINARY LOG:  $files"; for dbases in $(mysql -e 'show databases;' | grep -v "^Database\|^+"); do printf '%42s\n' | tr ' ' -; echo "  DATABASE NAME:  ${dbases}"; printf '%42s\n' | tr ' ' -; mysqlbinlog -d ${dbases} $files | grep -i -e "^update" -e "^insert" -e "^delete" -e "^replace" -e "^alter" | cut -c1-100 | tr '[A-Z]' '[a-z]' | sed -e "s/\t/ /g;s/\`//g;s/(.*$//;s/ set .*$//;s/ as .*$//" | sed -e "s/ where .*$//" | sort | uniq -c | sort -nr | head -50 | tee >(if [ `wc -l` -eq 0 ]; then echo "      NO QUERIES"; fi); done; done
+
+#MySQL Table Size
+for dbases in $(mysql -e 'show databases;' | grep -v "^Database\|^+"); do echo -e "\nDATABASE NAME:  ${dbases}"; mysql -e "SELECT table_name 'Table Name', table_rows 'Rows Count', round(((data_length + index_length)/1024/1024),2) 'Table Size (MB)' FROM information_schema.TABLES WHERE table_schema = \"${dbases}\";" ; done
+
+#Log Cleaner
+for _location in /opt/app/XCC/Instance[12]/logPEM/ /opt/app/XCC/Instance[12]/Tomcat7.XCC/logs/; do line() { printf '%42s\n' | tr ' ' - ; }; line; for targetfile in `find $_location -type f -mtime +5 \( -name "PromotionEngineWebServiceWrapper.log.*.txt" -o -name "PromotionEngineWebServiceWrapper.log.*.txt.gz" -o -name "CCM-SERVER.log.*.txt" -o -name "CCM-SERVER.log.*.txt.gz" -o -name "localhost_access_log.*.txt" -o -name "localhost_access_log.*.txt.gz" -o -name "PEM*.log" -o -name "PEM*.log.gz" \)`; do if [ -z "$(lsof $targetfile)" ]; then echo "Deleting file (last modified $(stat $targetfile | grep Modify: | awk '{print $2}')): $targetfile"; rm -f $targetfile; else echo "* Target file appears to be in use. NOT deleting $targetfile"; fi; done; line; echo "Filesystem /opt now at $(df /opt | tail -1 | awk '{print $4}') usage."; line; for targetfile in `find $_location -type f -mtime +1 \( -name "PromotionEngineWebServiceWrapper.log.*.txt" -o -name "CCM-SERVER.log.*.txt" -o -name "localhost_access_log.*.txt" -o -name "PEM*.log" \)`; do if [ -z "$(lsof $targetfile)" ]; then echo "Compressing $targetfile"; gzip -9 $targetfile; else echo "Target file appears to be in use. NOT compressing $targetfile"; fi; done; line; echo "Filesystem /opt now at $(df /opt | tail -1 | awk '{print $4}') usage."; line; done
+
+#Check fencing
+fence_ipmilan -o status -l root -P -A password -p <PASSWORD> -a <IP>
+
+#TTFB
+curl -ILk -w "Connect: %{time_connect} TTFB: %{time_starttransfer} Total time: %{time_total} \n"
+
+#MBU
+ht -C 'echo -e "[root@`hostname` ~]# tail /var/log/holland/holland.log\n `tail /var/log/holland/holland.log`"; echo -e "[root@`hostname` ~]# ip a s eth1\n `ip a s eth1`"; echo -e "[root@`hostname` ~]# simpana status\n `simpana status`"; echo -e "[root@`hostname` ~]# ip r\n `ip r`"; echo -e "[root@`hostname` ~]# ping -c5 `simpana status | grep Comm | cut -d" " -f4` -I eth1\n $(ping -c5 `simpana status | grep Comm | cut -d" " -f4` -I eth1)"' --sudo
+
+#Oracle ASM to Disk without listdisk/diskquery
+LIST=`lsblk | egrep -v "sd|vg"`; for i in `ls /dev/ora/`; do MAJ=`ls -l /dev/ora/$i | cut -d" " -f5 | cut -c1-3`; MIN=`ls -l /dev/ora/$i | cut -d" " -f6`; DEV=`grep $MAJ /proc/partitions | grep " $MIN " | awk '{print $4}' | cut -d1 -f1`; echo $i : $DEV; LIST=`printf '%s' "$LIST" | grep -v "$DEV[ 1]"`; done; printf '%s' "$LIST"
+ 
+#Oracle ASM with diskquery
+[root@orcldb2 ~]# /etc/init.d/oracleasm querydisk VOL1
+Disk "VOL1" is a valid ASM disk on device [8, 97]
+
+[root@orcldb2 ~]# ls -l /dev | grep 8, | grep 97
+brw-rw----   1 root disk     8,      81 Nov  4 13:02 sdg1
